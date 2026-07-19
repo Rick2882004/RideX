@@ -1,0 +1,174 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  RIDER
+  DRIVER
+  ADMIN
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  password      String?
+  role          Role           @default(RIDER)
+  emailVerified Boolean        @default(false)
+  image         String?
+  sessions      Session[]
+  accounts      Account[]
+  driverProfile Driver?
+  riderRides    Ride[]         @relation("RiderRides")
+  driverRides   Ride[]         @relation("DriverRides")
+  ratingsGiven  Rating[]       @relation("RaterRatings")
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Driver {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenseNumber   String
+  status          String   @default("AVAILABLE") // AVAILABLE, BUSY, OFFLINE
+  approved        Boolean  @default(true)
+  currentLat      Float?
+  currentLng      Float?
+  vehicleId       String?  @unique
+  vehicle         Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  ratingsReceived Rating[] @relation("DriverRatings")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Vehicle {
+  id          String   @id @default(cuid())
+  model       String   // Mini, Sedan, SUV
+  plateNumber String   @unique
+  color       String
+  type        String   // MINI, SEDAN, SUV
+  driver      Driver?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Ride {
+  id                 String       @id @default(cuid())
+  riderId            String
+  rider              User         @relation("RiderRides", fields: [riderId], references: [id], onDelete: Cascade)
+  driverId           String?
+  driver             User?        @relation("DriverRides", fields: [driverId], references: [id], onDelete: SetNull)
+  pickupAddress      String
+  pickupLat          Float?
+  pickupLng          Float?
+  destinationAddress String
+  destinationLat     Float?
+  destinationLng     Float?
+  status             String       @default("REQUESTED") // REQUESTED, ACCEPTED, ON_THE_WAY, COMPLETED, CANCELLED
+  fare               Float?
+  distance           String?
+  duration           String?
+  surgeMultiplier    Float        @default(1.0)
+  flagged            Boolean      @default(false)
+  flagReason         String?
+  trafficFactor      Float        @default(1.0)
+  weather            String       @default("CLEAR")
+  payments           Payment[]
+  ratings            Rating[]
+  statusLogs         RideStatus[]
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+model RideStatus {
+  id        String   @id @default(cuid())
+  rideId    String
+  ride      Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  status    String   // REQUESTED, ACCEPTED, ON_THE_WAY, COMPLETED, CANCELLED
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  rideId        String
+  ride          Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  amount        Float
+  status        String   // PENDING, COMPLETED, FAILED
+  method        String   // CARD, CASH, UPI
+  transactionId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  rideId    String
+  ride      Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  raterId   String
+  rater     User     @relation("RaterRatings", fields: [raterId], references: [id], onDelete: Cascade)
+  driverId  String
+  driver    Driver   @relation("DriverRatings", fields: [driverId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id           String    @id
+  accountId    String
+  providerId   String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken  String?
+  refreshToken String?
+  idToken      String?
+  expiresAt    DateTime?
+  password     String?
+  createdAt    DateTime
+  updatedAt    DateTime
+
+  @@unique([providerId, accountId])
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+}
