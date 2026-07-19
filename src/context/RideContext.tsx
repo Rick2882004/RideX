@@ -77,6 +77,14 @@ type RideContextType = {
   setDriverRotation: (rotation: number) => void;
   setTravelledRouteIndex: (index: number) => void;
   setCurrentEta: (eta: string) => void;
+  activeRide: any | null;
+  setActiveRide: (ride: any | null) => void;
+  isDarkMode: boolean;
+  setIsDarkMode: (dark: boolean) => void;
+  walletBalance: number;
+  setWalletBalance: (balance: number) => void;
+  promoApplied: string | null;
+  setPromoApplied: (promo: string | null) => void;
   resetRide: () => void;
 };
 
@@ -140,10 +148,101 @@ export function RideProvider({
   const [currentEta, setCurrentEta] =
     useState<string>("");
 
+  const [activeRide, setActiveRide] = useState<any | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  const [walletBalance, setWalletBalance] = useState<number>(1000);
+  const [promoApplied, setPromoApplied] = useState<string | null>(null);
+
   const driverLocationRef = useRef(driverLocation);
   useEffect(() => {
     driverLocationRef.current = driverLocation;
   }, [driverLocation]);
+
+  // Load and sync theme configuration
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storedTheme = localStorage.getItem("theme");
+      if (storedTheme === "light") {
+        setIsDarkMode(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (isDarkMode) {
+        document.documentElement.classList.remove("light-theme");
+        localStorage.setItem("theme", "dark");
+      } else {
+        document.documentElement.classList.add("light-theme");
+        localStorage.setItem("theme", "light");
+      }
+    }
+  }, [isDarkMode]);
+
+  // Load and sync wallet configuration
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storedWallet = localStorage.getItem("wallet");
+      if (storedWallet) {
+        setWalletBalance(parseFloat(storedWallet));
+      } else {
+        localStorage.setItem("wallet", "1000");
+      }
+    }
+  }, []);
+
+  const updateWalletBalance = (balance: number) => {
+    setWalletBalance(balance);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wallet", balance.toString());
+    }
+  };
+
+  // Recover active ride automatically on mount
+  useEffect(() => {
+    async function recoverActiveRide() {
+      try {
+        const userJson = localStorage.getItem("user");
+        const user = userJson ? JSON.parse(userJson) : null;
+        const riderId = user?.id;
+        if (!riderId) return;
+
+        const response = await fetch(`/api/rides?riderId=${riderId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.rides && data.rides.length > 0) {
+            const latestRide = data.rides[0];
+            if (
+              latestRide.status === "REQUESTED" ||
+              latestRide.status === "ACCEPTED" ||
+              latestRide.status === "ON_THE_WAY"
+            ) {
+              setRideId(latestRide.id);
+              setActiveRide(latestRide);
+              setPickupLocation({ lat: latestRide.pickupLat, lng: latestRide.pickupLng });
+              setPickupAddress(latestRide.pickupAddress);
+              setDestination({ lat: latestRide.destinationLat, lng: latestRide.destinationLng });
+              setDestinationAddress(latestRide.destinationAddress);
+              setDistance(latestRide.distance || "");
+              setDuration(latestRide.duration || "");
+
+              if (latestRide.status === "REQUESTED") {
+                setRideStatus("searching");
+              } else if (latestRide.status === "ACCEPTED") {
+                setRideStatus("driverFound");
+              } else if (latestRide.status === "ON_THE_WAY") {
+                setRideStatus("tripStarted");
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Active ride recovery failed:", error);
+      }
+    }
+    recoverActiveRide();
+  }, []);
 
   // Reset helper
   const resetRide = () => {
@@ -160,6 +259,8 @@ export function RideProvider({
     setDriverRotation(0);
     setTravelledRouteIndex(-1);
     setCurrentEta("");
+    setActiveRide(null);
+    setPromoApplied(null);
   };
 
   // Real-Time Socket.IO Synchronization Listener
@@ -221,6 +322,7 @@ export function RideProvider({
           const data = await response.json();
           if (data.success && data.rides && data.rides.length > 0) {
             const ride = data.rides[0];
+            setActiveRide(ride);
 
             // 1. Sync status changes
             if (ride.status === "ACCEPTED" && rideStatus === "searching") {
@@ -234,6 +336,10 @@ export function RideProvider({
               resetRide();
               return;
             }
+
+            // Sync database distance and duration to ensure rider and driver are identical
+            if (ride.distance) setDistance(ride.distance);
+            if (ride.duration) setDuration(ride.duration);
 
             // 2. Sync driver location changes
             if (ride.driver && ride.driver.driverProfile) {
@@ -326,6 +432,14 @@ export function RideProvider({
         setDriverRotation,
         setTravelledRouteIndex,
         setCurrentEta,
+        activeRide,
+        setActiveRide,
+        isDarkMode,
+        setIsDarkMode,
+        walletBalance,
+        setWalletBalance: updateWalletBalance,
+        promoApplied,
+        setPromoApplied,
         resetRide,
       }}
     >
