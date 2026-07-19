@@ -107,19 +107,39 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { status } = body; // AVAILABLE, OFFLINE
+    const { status, lat, lng } = body;
 
-    if (status !== "AVAILABLE" && status !== "OFFLINE") {
+    const dataToUpdate: any = {};
+
+    if (status !== undefined) {
+      if (status !== "AVAILABLE" && status !== "OFFLINE" && status !== "BUSY") {
+        return NextResponse.json(
+          { error: "Invalid status: Must be AVAILABLE, OFFLINE, or BUSY" },
+          { status: 400 }
+        );
+      }
+      dataToUpdate.status = status;
+    }
+
+    if (lat !== undefined) {
+      dataToUpdate.currentLat = parseFloat(lat);
+    }
+
+    if (lng !== undefined) {
+      dataToUpdate.currentLng = parseFloat(lng);
+    }
+
+    if (Object.keys(dataToUpdate).length === 0) {
       return NextResponse.json(
-        { error: "Invalid status: Must be AVAILABLE or OFFLINE" },
+        { error: "No fields to update" },
         { status: 400 }
       );
     }
 
-    // Update status in database
+    // Update in database
     const updatedProfile = await prisma.driver.update({
       where: { userId: session.user.id },
-      data: { status },
+      data: dataToUpdate,
     });
 
     return NextResponse.json({

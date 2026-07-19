@@ -108,8 +108,27 @@ export default function DriverPage() {
 
     socket.on("ride_requested", handleRideRequested);
 
+    // Database polling fallback for Serverless environment (Vercel)
+    let pollInterval: NodeJS.Timeout | null = null;
+    if (status === "AVAILABLE" && !currentRide) {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await axios.get("/api/driver/available-rides");
+          if (res.data.success) {
+            const rides = res.data.rides.filter(
+              (r: any) => !rejectedRideIds.includes(r.id)
+            );
+            setAvailableRides(rides);
+          }
+        } catch (err) {
+          console.error("Failed to poll available rides:", err);
+        }
+      }, 3000);
+    }
+
     return () => {
       socket.off("ride_requested", handleRideRequested);
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, [status, currentRide, rejectedRideIds, driver]);
 
@@ -240,6 +259,14 @@ export default function DriverPage() {
         rotation,
       });
 
+      // Update location in database every 2 seconds (10 steps) or on final step
+      if (step % 10 === 0 || step >= totalSteps) {
+        axios.post("/api/driver/profile", {
+          lat: currentLat,
+          lng: currentLng,
+        }).catch((err) => console.error("Database driver location update failed:", err));
+      }
+
       if (step >= totalSteps) {
         clearInterval(simIntervalRef.current!);
         simIntervalRef.current = null;
@@ -301,6 +328,14 @@ export default function DriverPage() {
         lng: currentLng,
         rotation,
       });
+
+      // Update location in database every 2 seconds (10 steps) or on final step
+      if (step % 10 === 0 || step >= totalSteps) {
+        axios.post("/api/driver/profile", {
+          lat: currentLat,
+          lng: currentLng,
+        }).catch((err) => console.error("Database driver location update failed during trip:", err));
+      }
 
       if (step >= totalSteps) {
         clearInterval(simIntervalRef.current!);

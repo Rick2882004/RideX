@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import { socket } from "@/lib/socket";
@@ -139,6 +140,11 @@ export function RideProvider({
   const [currentEta, setCurrentEta] =
     useState<string>("");
 
+  const driverLocationRef = useRef(driverLocation);
+  useEffect(() => {
+    driverLocationRef.current = driverLocation;
+  }, [driverLocation]);
+
   // Reset helper
   const resetRide = () => {
     setRideId(null);
@@ -207,12 +213,75 @@ export function RideProvider({
     socket.on("trip_completed", handleTripCompleted);
     socket.on("ride_cancelled", handleRideCancelled);
 
+    // Fallback database polling for Vercel/Production serverless environments
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/rides?rideId=${rideId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.rides && data.rides.length > 0) {
+            const ride = data.rides[0];
+
+            // 1. Sync status changes
+            if (ride.status === "ACCEPTED" && rideStatus === "searching") {
+              setRideStatus("driverFound");
+            } else if (ride.status === "ON_THE_WAY" && (rideStatus === "searching" || rideStatus === "driverFound" || rideStatus === "driverArrived")) {
+              setRideStatus("tripStarted");
+            } else if (ride.status === "COMPLETED" && rideStatus !== "rideCompleted") {
+              setRideStatus("rideCompleted");
+            } else if (ride.status === "CANCELLED") {
+              alert("This ride was cancelled by the driver or system.");
+              resetRide();
+              return;
+            }
+
+            // 2. Sync driver location changes
+            if (ride.driver && ride.driver.driverProfile) {
+              const profile = ride.driver.driverProfile;
+              if (profile.currentLat !== null && profile.currentLng !== null) {
+                const newLat = profile.currentLat;
+                const newLng = profile.currentLng;
+
+                // Sync rotation based on difference from previous location
+                const prevLoc = driverLocationRef.current;
+                if (prevLoc && (prevLoc.lat !== newLat || prevLoc.lng !== newLng)) {
+                  const bearing = (Math.atan2(newLng - prevLoc.lng, newLat - prevLoc.lat) * 180) / Math.PI;
+                  setDriverRotation(bearing);
+                }
+
+                setDriverLocation({ lat: newLat, lng: newLng });
+
+                // Sync ETA & arrival transitions
+                if (ride.status === "ACCEPTED" && pickupLocation) {
+                  const dist = getFlatDistance(newLat, newLng, pickupLocation.lat, pickupLocation.lng);
+                  if (dist < 20) {
+                    setRideStatus("driverArrived");
+                    setCurrentEta("Arrived");
+                  } else {
+                    const etaMins = Math.max(1, Math.ceil(dist / 200));
+                    setCurrentEta(`${etaMins} mins`);
+                  }
+                } else if (ride.status === "ON_THE_WAY" && destination) {
+                  const dist = getFlatDistance(newLat, newLng, destination.lat, destination.lng);
+                  const etaMins = Math.max(1, Math.ceil(dist / 200));
+                  setCurrentEta(`${etaMins} mins`);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Polled ride fetch failed:", err);
+      }
+    }, 3000);
+
     return () => {
       socket.off("ride_accepted", handleRideAccepted);
       socket.off("location_updated", handleLocationUpdated);
       socket.off("trip_started", handleTripStarted);
       socket.off("trip_completed", handleTripCompleted);
       socket.off("ride_cancelled", handleRideCancelled);
+      clearInterval(pollInterval);
     };
   }, [rideId, rideStatus, pickupLocation, destination]);
 

@@ -8,8 +8,10 @@ export async function GET(req: NextRequest) {
     const riderId = searchParams.get("riderId");
     const driverId = searchParams.get("driverId");
     const status = searchParams.get("status");
+    const rideId = searchParams.get("rideId");
 
     const where: any = {};
+    if (rideId) where.id = rideId;
     if (riderId) where.riderId = riderId;
     if (driverId) where.driverId = driverId;
     if (status) where.status = status;
