@@ -42,6 +42,7 @@ export default function DriverPage() {
     setDuration,
     setRideStatus,
     resetRide,
+    route,
   } = useRide();
 
   // Driver states
@@ -406,8 +407,8 @@ export default function DriverPage() {
 
           // Notify rider and start trip simulation along path
           socket.emit("start_trip", { rideId: currentRide.id });
-          if (useRide().route) {
-            simulateTripMovement(currentRide, useRide().route!.coordinates);
+          if (route) {
+            simulateTripMovement(currentRide, route.coordinates);
           }
         } else if (nextState === "COMPLETED") {
           if (simIntervalRef.current) clearInterval(simIntervalRef.current);
